@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>플래시 게임 런처 – Ruffle + 햄버거 메뉴</title>
+  <meta name="description" content="여러 개의 SWF 플래시 게임을 한 페이지에서 선택해 실행하는 런처. Ruffle 에뮬레이터 사용." />
+  <style>
+    :root{--bg:#0b0f14;--panel:#131922;--muted:#8aa0b3;--text:#e8eef5;--accent:#59b1ff;--border:rgba(255,255,255,.1);--shadow:0 8px 40px rgba(0,0,0,.35)}
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;background:radial-gradient(1200px 800px at 80% -20%, #132033 0%, var(--bg) 60%);color:var(--text);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Noto Sans KR,Apple SD Gothic Neo,\"맑은 고딕\",Arial,\"Helvetica Neue\"}
+    header{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--border);background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(0,0,0,0));backdrop-filter:blur(6px)}
+    .hamburger{display:inline-flex;flex:none;width:40px;height:40px;border-radius:10px;border:1px solid var(--border);background:#0e1520;cursor:pointer;align-items:center;justify-content:center}
+    .hamburger:active{transform:translateY(1px)}
+    .title{font-weight:800;letter-spacing:.2px}
+    .muted{color:var(--muted)}
+
+    .wrap{max-width:1100px;margin:12px auto;padding:0 14px 24px;display:grid;gap:12px}
+    .toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:rgba(19,25,34,.9);border:1px solid var(--border);border-radius:14px;padding:10px}
+    button,label.btn{appearance:none;border:1px solid var(--border);background:#0d141d;color:var(--text);padding:8px 12px;border-radius:10px;cursor:pointer;font-weight:700;letter-spacing:.2px;display:inline-flex;gap:8px;align-items:center}
+    button:hover,label.btn:hover{border-color:rgba(255,255,255,.22);background:#101a26}
+    .btn-accent{border-color:rgba(89,177,255,.5);box-shadow:inset 0 0 0 1px rgba(89,177,255,.25)}
+    input[type=range]{accent-color:var(--accent)}
+
+    .player-shell{background:#0b121a;border:1px solid var(--border);border-radius:18px;overflow:hidden;position:relative;box-shadow:var(--shadow)}
+    .stage{position:relative;width:100%;aspect-ratio:4/3;max-height:calc(100dvh - 230px);display:grid;place-items:center;background:repeating-conic-gradient(from 0deg,#0e1620 0 10deg,#0d141d 10deg 20deg)}
+    .stage .hint{position:absolute;bottom:8px;right:8px;color:var(--muted);font-size:12px}
+
+    /* 햄버거 드로어 */
+    ar(--shadow);transform:translateX(-100%);transition:transform .2s ease;display:flex;flex-direction:column}
+    .drawer.open~.drawer-back{display:block}
+    .drawer.open{transform:none}
+    .drawer header{position:static;border-bottom:1px solid var(--border)}
+    .search{display:flex;gap:8px;padding:12px 12px 10px}
+    .search input{flex:1 1 auto;height:40px;border-radius:10px;border:1px solid var(--border);background:#0b1216;color:var(--text);padding:0 12px}
+    .game-list{overflow:auto;padding:6px 10px 14px;display:grid;gap:6px}
+    .game-item{display:flex;gap:10px;align-items:center;padding:10px;border-radius:10px;border:1px solid var(--border);background:#0c131c;cursor:pointer}
+    .game-item:hover{border-color:rgba(255,255,255,.22);background:#101a26}
+    .game-item small{color:var(--muted)}
+
+    .file-warn{display:none;margin:0 14px 0;padding:14px;border:1px dashed rgba(255,255,255,.25);border-radius:12px;background:linear-gradient(135deg, rgba(255,99,99,.1), rgba(255,166,0,.08))}
+    .file-warn code{background:rgba(0,0,0,.35);padding:2px 6px;border-radius:6px}
+
+    @media (max-width:880px){.drawer{inset:0 12% 0 0;max-width:86%}}
+  </style>
+  <!-- Favicon (16x16) -->
+  <link rel="icon" type="image/png" sizes="16x16" href="favicon.png" />
+  <!-- Patch: disable drawer blur -->
+  <style>
+    .drawer-back{backdrop-filter:none !important;}
+  </style>
+</head>
+<body>
+  <header>
+    <button id="btnMenu" class="hamburger" title="게임 메뉴 열기" aria-label="게임 메뉴 열기">☰</button>
+    <div class="title">플래시 게임 런처</div>
+    <div class="muted">Ruffle • 여러 SWF 선택 실행</div>
+    <span style="flex:1 1 auto"></span>
+    <span class="muted" style="font-size:12px">단축키: M(메뉴), F(전체화면)</span>
+  </header>
+
+  <main class="wrap">
+    <div class="toolbar" role="group" aria-label="플레이어 제어">
+      <label class="btn btn-accent" for="fileInput">SWF 불러오기</label>
+      <input id="fileInput" type="file" accept=".swf" hidden />
+
+      <button id="btnDefault" class="btn">기본 게임 실행</button>
+      <button id="btnFullscreen" class="btn">전체 화면</button>
+      <span style="width:8px"></span>
+      <span class="muted" style="font-size:13px">배율</span>
+      <input id="zoom" type="range" min="50" max="200" value="100" />
+      <span id="zoomVal" style="width:44px;text-align:right;font-variant-numeric:tabular-nums">100%</span>
+      <button id="btnFit" class="btn">창에 맞추기</button>
+      <button id="btnReset" class="btn">초기화</button>
+      <span style="flex:1 1 auto"></span>
+      <button id="btnReload" class="btn">다시 실행</button>
+      <button id="btnClear" class="btn" title="세이브/캐시 초기화">캐시 초기화</button>
+    </div>
+
+    <div class="player-shell">
+      <div id="stage" class="stage" tabindex="0" aria-label="게임 무대 (클릭 후 키/마우스 입력)">
+        <div class="hint">SWF를 드래그해도 됩니다</div>
+      </div>
+    </div>
+
+    <p class="muted" style="font-size:12.5px;line-height:1.6;text-align:center">
+      ⚠️ 이 페이지는 Flash 원본(SWF)이 <b>법적으로 허용된 범위</b> 내에서만 사용되어야 합니다. Ruffle: <a href="https://ruffle.rs" target="_blank" rel="noreferrer noopener" style="color:var(--accent)">ruffle.rs</a>
+    </p>
+
+    <div id="fileProtoWarning" class="file-warn">
+      <b>지금 <code>file://</code>로 열려 있어 Ruffle가 막혔습니다.</b> 아래 중 하나로 열어주세요:
+      <ol style="margin:8px 0 0 18px;line-height:1.6">
+        <li><b>GitHub Pages</b>에 업로드하여 https로 접속</li>
+        <li><b>VS Code</b> → Live Server</li>
+        <li><b>Python</b>: 폴더에서 <code>python -m http.server 8000</code> → <code>http://localhost:8000</code></li>
+      </ol>
+    </div>
+  </main>
+
+  <!-- 왼쪽 햄버거 드로어 -->
+  <aside id="drawer" class="drawer" aria-hidden="true">
+    <header>
+      <div class="search">
+        <input id="q" type="search" placeholder="게임 검색 (한글/영문)" />
+        <button id="btnClose" class="hamburger" aria-label="닫기">✕</button>
+      </div>
+    </header>
+    <div id="gameList" class="game-list" role="listbox" aria-label="게임 목록"></div>
+  </aside>
+  <div id="backdrop" class="drawer-back"></div>
+
+  <!-- Ruffle -->
+  <script src="https://unpkg.com/@ruffle-rs/ruffle"></script>
+  <script>
+    // ================== 설정: 여기 목록만 편집하면 됨 ==================
+    // 파일은 assets/ 폴더에 위치. title은 표시명, file은 상대경로
+    const GAMES = [
+      { id:'age_of_war',    title:'전쟁시대 1 (Age of War)',     file:'assets/age_of_war.swf' },
+      { id:'stick_war',     title:'스틱워(예시)',                file:'assets/stick_war.swf' },
+      { id:'bloons_td',     title:'블룬스 타워 디펜스(예시)',     file:'assets/bloons_td.swf' },
+      // 필요하면 자유롭게 추가
+    ];
+    // 초기 기본 실행 타깃 (없으면 첫 항목 사용)
+    const DEFAULT_GAME_ID = localStorage.getItem('last_game_id') || GAMES[0]?.id;
+
+    // ================== 요소 참조 ==================
+    const stage = document.getElementById('stage');
+    const zoom = document.getElementById('zoom');
+    const zoomVal = document.getElementById('zoomVal');
+    const btnFit = document.getElementById('btnFit');
+    const btnReset = document.getElementById('btnReset');
+    const btnReload = document.getElementById('btnReload');
+    const btnClear = document.getElementById('btnClear');
+    const btnFs = document.getElementById('btnFullscreen');
+    const btnDefault = document.getElementById('btnDefault');
+    const fileInput = document.getElementById('fileInput');
+
+    const drawer = document.getElementById('drawer');
+    const backdrop = document.getElementById('backdrop');
+    const btnMenu = document.getElementById('btnMenu');
+    const btnClose = document.getElementById('btnClose');
+    const listEl = document.getElementById('gameList');
+    const q = document.getElementById('q');
+
+    let rufflePlayer = null;
+    let scale = 1;
+    let currentSrc = null; // URL 문자열 또는 {data:ArrayBuffer}
+
+    // file:// 경고
+    document.addEventListener('DOMContentLoaded', ()=>{
+      if (location.protocol === 'file:') {
+        document.getElementById('fileProtoWarning').style.display = 'block';
+      }
+    });
+
+    // 플레이어 생성
+    function makePlayer(){
+      stage.querySelectorAll('ruffle-player, object, embed, canvas').forEach(n=>n.remove());
+      const ruffle = window.RufflePlayer?.newest();
+      rufflePlayer = ruffle.createPlayer();
+      rufflePlayer.style.width = '100%';
+      rufflePlayer.style.height = '100%';
+      rufflePlayer.style.transformOrigin = 'center center';
+      stage.appendChild(rufflePlayer);
+      stage.addEventListener('click',()=>stage.focus());
+    }
+
+    // 로드 함수
+    function loadFromUrl(url){
+      currentSrc = url; if(!rufflePlayer) makePlayer();
+      rufflePlayer.load(url).then(()=>{ saveLastGame(url); }).catch(err=>{
+        console.error('SWF 로드 실패', err); alert('SWF를 불러올 수 없습니다. 경로 또는 CORS를 확인하세요.');
+      });
+    }
+    function loadFromFile(file){
+      if(!file) return; const reader = new FileReader();
+      reader.onload = (e)=>{ currentSrc = {data:e.target.result}; if(!rufflePlayer) makePlayer();
+        rufflePlayer.load(currentSrc).catch(err=>{ alert('SWF 파일 로드 실패'); console.error(err); });
+      }; reader.readAsArrayBuffer(file);
+    }
+
+    // 배율
+    function setScale(percent){
+      scale = Math.max(.5, Math.min(2, percent/100));
+      zoomVal.textContent = Math.round(scale*100)+'%';
+      const playerEl = stage.querySelector('ruffle-player');
+      if(playerEl) playerEl.style.transform = `scale(${scale})`;
+    }
+    function fitToStage(){
+      const playerEl = stage.querySelector('ruffle-player'); if(!playerEl) return;
+      const rect = stage.getBoundingClientRect(); const baseW=800, baseH=600; // 4:3
+      const s = Math.min(rect.width/baseW, rect.height/baseH); zoom.value = Math.round(s*100); setScale(zoom.value);
+    }
+
+    function reload(){
+      if(!rufflePlayer) return; // currentSrc 유지
+      if(typeof currentSrc === 'string') loadFromUrl(currentSrc);
+      else if(currentSrc && currentSrc.data) { makePlayer(); rufflePlayer.load(currentSrc); }
+    }
+    function clearCaches(){ try{localStorage.clear();sessionStorage.clear();caches?.keys?.().then(keys=>keys.forEach(k=>caches.delete(k)));}catch(e){} alert('로컬 저장(세이브/캐시)을 초기화했습니다.'); }
+
+    function openMenu(){ drawer.classList.add('open'); drawer.setAttribute('aria-hidden','false'); backdrop.style.display='block'; q.focus(); }
+    function closeMenu(){ drawer.classList.remove('open'); drawer.setAttribute('aria-hidden','true'); backdrop.style.display='none'; }
+
+    // 목록 렌더링
+    function renderList(filter=''){
+      listEl.innerHTML=''; const f = filter.trim().toLowerCase();
+      GAMES.filter(g => !f || g.title.toLowerCase().includes(f) || g.id.toLowerCase().includes(f))
+           .forEach(g => {
+             const li = document.createElement('div'); li.className='game-item'; li.role='option'; li.tabIndex=0;
+             li.innerHTML = `<div><div style=\"font-weight:800\">${g.title}</div><small>${g.file}</small></div>`;
+             li.addEventListener('click',()=>{ loadFromUrl(g.file); closeMenu(); });
+             li.addEventListener('keydown',(e)=>{ if(e.key==='Enter') { loadFromUrl(g.file); closeMenu(); } });
+             listEl.appendChild(li);
+           });
+      // 파일 업로드 항목
+      const up = document.createElement('div'); up.className='game-item'; up.innerHTML = '<div><div style="font-weight:800">내 SWF 업로드…</div><small>로컬 파일에서 실행</small></div>';
+      up.addEventListener('click',()=> fileInput.click()); listEl.appendChild(up);
+    }
+
+    function saveLastGame(url){ try{ const found = GAMES.find(g=>g.file===url); if(found) localStorage.setItem('last_game_id', found.id);}catch(e){} }
+
+    // 이벤트 바인딩
+    window.addEventListener('DOMContentLoaded',()=>{ makePlayer(); setScale(100); renderList(); if(DEFAULT_GAME_ID){ const g=GAMES.find(x=>x.id===DEFAULT_GAME_ID) || GAMES[0]; if(g) loadFromUrl(g.file);} });
+    zoom.addEventListener('input', e=>setScale(e.target.value));
+    btnFit.addEventListener('click', fitToStage);
+    btnReset.addEventListener('click', ()=>{ zoom.value=100; setScale(100); });
+    btnReload.addEventListener('click', reload);
+    btnClear.addEventListener('click', clearCaches);
+    btnFs.addEventListener('click', ()=>{ if(stage.requestFullscreen) stage.requestFullscreen(); else stage.webkitRequestFullscreen && stage.webkitRequestFullscreen(); });
+    btnDefault.addEventListener('click', ()=>{ const g=GAMES.find(x=>x.id===DEFAULT_GAME_ID) || GAMES[0]; if(g) loadFromUrl(g.file); });
+    fileInput.addEventListener('change', e=> loadFromFile(e.target.files?.[0]));
+
+    // 드래그 앤 드롭
+    ['dragenter','dragover'].forEach(t=>stage.addEventListener(t,(e)=>{e.preventDefault();e.stopPropagation();}));
+    stage.addEventListener('drop',(e)=>{e.preventDefault();e.stopPropagation(); const f=[...(e.dataTransfer?.files||[])].find(x=>x.name.endsWith('.swf')); if(f) loadFromFile(f);});
+
+    // 메뉴
+    btnMenu.addEventListener('click', openMenu); btnClose.addEventListener('click', closeMenu); backdrop.addEventListener('click', closeMenu);
+    q.addEventListener('input', ()=>renderList(q.value));
+
+    // 단축키
+    window.addEventListener('keydown',(e)=>{
+      if(e.key.toLowerCase()==='m') { e.preventDefault(); drawer.classList.contains('open')?closeMenu():openMenu(); }
+      if(e.key.toLowerCase()==='f') { e.preventDefault(); if(stage.requestFullscreen) stage.requestFullscreen(); }
+      if(e.key==='Escape' && drawer.classList.contains('open')) closeMenu();
+    });
+  </script>
+</body>
+</html>
